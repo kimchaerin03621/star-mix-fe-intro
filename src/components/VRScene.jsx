@@ -339,6 +339,7 @@ function InteractiveOrb({ color, initialPos, orbKey, coordsRef, setIsDraggingOrb
   // Track dragging distance and active grabbing controller (0, 1, or 'mouse')
   const dragDistanceRef = useRef(2.5);
   const activeControllerRef = useRef(null);
+  const isHoveredRef = useRef(false);
 
   // Sync drag state to parent collision manager
   useEffect(() => {
@@ -547,7 +548,10 @@ function InteractiveOrb({ color, initialPos, orbKey, coordsRef, setIsDraggingOrb
       }
 
       if (!isDragging) {
-        setHovered(isAnyCtrlHovering);
+        if (isHoveredRef.current !== isAnyCtrlHovering) {
+          isHoveredRef.current = isAnyCtrlHovering;
+          setHovered(isAnyCtrlHovering);
+        }
       }
     }
 
@@ -967,23 +971,23 @@ function VRAudioExperience({ starColors, activeSong, leftRate, rightRate, active
 
     const webAudioTime = ctx.currentTime;
 
-    // 1. Sync Audio Listener with VR Camera position and orientation
+    // 1. Sync Audio Listener with VR Camera position and orientation (Using setValueAtTime to prevent WebAudio queue accumulation)
     const listener = ctx.listener;
     if (listener.positionX) {
-      listener.positionX.setTargetAtTime(camera.position.x, webAudioTime, 0.05);
-      listener.positionY.setTargetAtTime(camera.position.y, webAudioTime, 0.05);
-      listener.positionZ.setTargetAtTime(camera.position.z, webAudioTime, 0.05);
+      listener.positionX.setValueAtTime(camera.position.x, webAudioTime);
+      listener.positionY.setValueAtTime(camera.position.y, webAudioTime);
+      listener.positionZ.setValueAtTime(camera.position.z, webAudioTime);
 
       const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
       const up = new THREE.Vector3(0, 1, 0).applyQuaternion(camera.quaternion);
 
-      listener.forwardX.setTargetAtTime(forward.x, webAudioTime, 0.05);
-      listener.forwardY.setTargetAtTime(forward.y, webAudioTime, 0.05);
-      listener.forwardZ.setTargetAtTime(forward.z, webAudioTime, 0.05);
+      listener.forwardX.setValueAtTime(forward.x, webAudioTime);
+      listener.forwardY.setValueAtTime(forward.y, webAudioTime);
+      listener.forwardZ.setValueAtTime(forward.z, webAudioTime);
 
-      listener.upX.setTargetAtTime(up.x, webAudioTime, 0.05);
-      listener.upY.setTargetAtTime(up.y, webAudioTime, 0.05);
-      listener.upZ.setTargetAtTime(up.z, webAudioTime, 0.05);
+      listener.upX.setValueAtTime(up.x, webAudioTime);
+      listener.upY.setValueAtTime(up.y, webAudioTime);
+      listener.upZ.setValueAtTime(up.z, webAudioTime);
     } else {
       listener.setPosition(camera.position.x, camera.position.y, camera.position.z);
     }
@@ -997,9 +1001,9 @@ function VRAudioExperience({ starColors, activeSong, leftRate, rightRate, active
       const audio = audioElementsRef.current[stem.key];
 
       if (panner && pos) {
-        panner.positionX.setTargetAtTime(pos.x, webAudioTime, 0.05);
-        panner.positionY.setTargetAtTime(pos.y, webAudioTime, 0.05);
-        panner.positionZ.setTargetAtTime(pos.z, webAudioTime, 0.05);
+        panner.positionX.setValueAtTime(pos.x, webAudioTime);
+        panner.positionY.setValueAtTime(pos.y, webAudioTime);
+        panner.positionZ.setValueAtTime(pos.z, webAudioTime);
       }
 
       if (audio) {
@@ -1009,7 +1013,7 @@ function VRAudioExperience({ starColors, activeSong, leftRate, rightRate, active
 
       const gainNode = gainsRef.current[stem.key];
       if (gainNode) {
-        gainNode.gain.setTargetAtTime(1.5, webAudioTime, 0.1);
+        gainNode.gain.setValueAtTime(1.5, webAudioTime);
       }
     });
   });
