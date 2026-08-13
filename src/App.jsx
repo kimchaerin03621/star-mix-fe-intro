@@ -5,6 +5,7 @@ import './index.css';
 import { createXRStore } from '@react-three/xr';
 import { VRScene } from './components/VRScene';
 import { ControllerPanel } from './components/ControllerPanel';
+import { OrbitalMainMenu } from './components/OrbitalMainMenu';
 
 const xrStore = createXRStore({ 
   offerSession: false
@@ -602,7 +603,7 @@ function App() {
     return () => cancelAnimationFrame(animId);
   }, []);
 
-  const [viewMode, setViewMode] = useState('intro'); // 'intro' | 'menu' | 'dj'
+  const [viewMode, setViewMode] = useState('menu'); // Start directly on main orbital menu!
   const [prevViewMode, setPrevViewMode] = useState('menu');
   const [interactionEnergy, setInteractionEnergy] = useState(0);
   const [isWarping, setIsWarping] = useState(false);
@@ -1581,50 +1582,40 @@ function App() {
         </div>
       )}
 
-      {/* Main Menu Dashboard View (viewMode === 'menu') */}
+      {/* Main Orbital Selection View (viewMode === 'menu') */}
       {!isInVR && !isDesktopVR && viewMode === 'menu' && (
-        <div className="main-menu-overlay">
-          <div className="menu-header">
-            <h1 className="menu-glow-title">CHANNEL</h1>
-            <p className="menu-glow-subtitle">CHOOSE YOUR COSMOS</p>
-          </div>
+        <OrbitalMainMenu
+          onSelectMode={(mode) => {
+            if (mode === 'dj') setViewMode('dj');
+            else if (mode === 'vr1') handleEnterVR(1, false);
+            else if (mode === 'vr2') handleEnterVR(2, false);
+            else if (mode === 'voicecloud') setViewMode('voicecloud');
+          }}
+          onOpenEditor={() => setIsEditorOpen(true)}
+          onOpenController={() => setViewMode('controller')}
+        />
+      )}
 
-          <div className="menu-grid">
-            <div className="menu-card dj-mode" onClick={() => setViewMode('dj')}>
-              <div className="card-glow" />
-              <div className="card-icon">🎧</div>
-              <h3 className="card-title">Webcam DJ Mode</h3>
-              <p className="card-desc">웹캠 핸드트래킹과 마우스를 사용하여 우주의 소리와 별무리를 믹싱합니다.</p>
-              <div className="card-btn">진입하기</div>
-            </div>
-
-            <div className="menu-card vr-classic" onClick={() => handleEnterVR(1, false)}>
-              <div className="card-glow" />
-              <div className="card-icon">VR</div>
-              <h3 className="card-title">VR 1 (Classic)</h3>
-              <p className="card-desc">3차원 가상 현실 공간에서 성운 입자들과 교감하는 입체 모드입니다.</p>
-              <div className="card-btn">체험하기</div>
-            </div>
-
-            <div className="menu-card controller-mode" onClick={() => setViewMode('controller')}>
-              <div className="card-glow" />
-              <div className="card-icon">CTRL</div>
-              <h3 className="card-title">Controller Mode</h3>
-              <p className="card-desc">DJ 컨트롤러를 연결해서 노브, 페이더, 패드 입력으로 웹 믹스를 조작합니다.</p>
-              <div className="card-btn">연결하기</div>
-            </div>
-            <div className="menu-card vr-spatial" onClick={() => handleEnterVR(2, false)}>
-              <div className="card-glow" />
-              <div className="card-icon">🪐</div>
-              <h3 className="card-title">VR 2 (Spatial)</h3>
-              <p className="card-desc">고도화된 3D 공간 음향이 결합된 몰입형 가상 현실 디제잉 체험.</p>
-              <div className="card-btn">체험하기</div>
-            </div>
-          </div>
-
-          <button className="reset-intro-btn" onClick={stopCameraAndReturnToIntro}>
+      {/* Voice Cloud Placeholder View (viewMode === 'voicecloud') */}
+      {!isInVR && !isDesktopVR && viewMode === 'voicecloud' && (
+        <div className="voice-cloud-overlay">
+          <button className="home-btn" onClick={() => setViewMode('menu')}>
             Back to Menu
           </button>
+          
+          <div className="voice-cloud-content">
+            <div className="voice-cloud-icon">☁️</div>
+            <h1 className="voice-cloud-title">VOICE CLOUD</h1>
+            <p className="voice-cloud-subtitle">AI VOICE & CLOUD MIXER (COMING SOON)</p>
+            
+            <div className="wave-bars">
+              <div className="bar b1"></div>
+              <div className="bar b2"></div>
+              <div className="bar b3"></div>
+              <div className="bar b4"></div>
+              <div className="bar b5"></div>
+            </div>
+          </div>
         </div>
       )}
 
@@ -1682,6 +1673,7 @@ function App() {
           onMixingProgress={viewMode === 'intro' ? handleMixingProgress : null}
           isWarping={isWarping}
           warpProgress={warpProgress}
+          isWhiteOnly={viewMode === 'menu'}
         />
       )}
 

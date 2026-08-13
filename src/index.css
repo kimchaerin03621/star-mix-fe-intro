@@ -1901,3 +1901,194 @@ body {
   letter-spacing: 0.5px;
 }
 
+/* ==========================================================================
+   Orbital Main Menu & Voice Cloud Styling (Channel Space Design)
+   ========================================================================== */
+
+.orbital-menu-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: 15;
+  background: transparent;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  user-select: none;
+}
+
+.channel-logo {
+  position: absolute;
+  top: 36px;
+  left: 42px;
+  font-family: 'Share Tech Mono', 'Courier New', monospace;
+  font-size: 1.6rem;
+  font-weight: 500;
+  color: #ffffff;
+  letter-spacing: 0.85em;
+  text-transform: lowercase;
+  opacity: 0.95;
+  z-index: 20;
+}
+
+.top-right-actions {
+  position: absolute;
+  top: 36px;
+  right: 42px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  z-index: 20;
+}
+
+.pill-btn {
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  border-radius: 9999px;
+  padding: 8px 24px;
+  color: #ffffff;
+  font-family: var(--sf-font-body);
+  font-size: 0.88rem;
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  cursor: pointer;
+  backdrop-filter: blur(12px);
+  transition: all 0.25s cubic-bezier(0.2, 0.8, 0.2, 1);
+  text-transform: none;
+}
+
+.pill-btn:hover {
+  background: rgba(255, 255, 255, 0.15);
+  border-color: #ffffff;
+  box-shadow: 0 0 15px rgba(255, 255, 255, 0.4);
+  transform: translateY(-1px);
+}
+
+.orbit-stage {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.orbit-svg {
+  position: absolute;
+  width: 90%;
+  max-width: 1000px;
+  height: auto;
+  pointer-events: none;
+  overflow: visible;
+}
+
+.orbit-node-wrapper {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1), opacity 0.2s ease;
+  pointer-events: auto;
+}
+
+.orbit-orb {
+  width: 70px;
+  height: 70px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 35%, #ffffff 0%, rgba(255, 255, 255, 0.9) 35%, rgba(255, 255, 255, 0.3) 70%, rgba(255, 255, 255, 0) 100%);
+  box-shadow: 0 0 35px rgba(255, 255, 255, 0.8), 0 0 70px rgba(255, 255, 255, 0.4);
+  transition: all 0.3s ease;
+}
+
+.orbit-node-wrapper:hover .orbit-orb {
+  transform: scale(1.2);
+  box-shadow: 0 0 50px rgba(255, 255, 255, 1.0), 0 0 100px rgba(255, 255, 255, 0.8);
+}
+
+.orbit-label {
+  margin-top: 18px;
+  font-family: var(--sf-font-body);
+  font-size: 0.95rem;
+  font-weight: 500;
+  color: #ffffff;
+  letter-spacing: 0.05em;
+  text-shadow: 0 0 10px rgba(255, 255, 255, 0.6);
+  white-space: nowrap;
+  text-transform: none;
+}
+
+/* Voice Cloud Placeholder Styling */
+.voice-cloud-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: 50;
+  background: rgba(0, 0, 0, 0.92);
+  backdrop-filter: blur(20px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.voice-cloud-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 16px;
+}
+
+.voice-cloud-icon {
+  font-size: 4rem;
+  filter: drop-shadow(0 0 20px rgba(255, 255, 255, 0.6));
+}
+
+.voice-cloud-title {
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 2.5rem;
+  letter-spacing: 0.3em;
+  color: #ffffff;
+  margin: 0;
+}
+
+.voice-cloud-subtitle {
+  font-size: 0.9rem;
+  letter-spacing: 0.2em;
+  color: rgba(255, 255, 255, 0.6);
+  margin: 0;
+}
+
+.wave-bars {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+  margin-top: 20px;
+}
+
+.wave-bars .bar {
+  width: 4px;
+  background: #ffffff;
+  border-radius: 4px;
+  animation: wavePulse 1.2s ease-in-out infinite alternate;
+}
+
+.wave-bars .b1 { height: 15px; animation-delay: 0.1s; }
+.wave-bars .b2 { height: 35px; animation-delay: 0.3s; }
+.wave-bars .b3 { height: 25px; animation-delay: 0.2s; }
+.wave-bars .b4 { height: 40px; animation-delay: 0.4s; }
+.wave-bars .b5 { height: 20px; animation-delay: 0.15s; }
+
+@keyframes wavePulse {
+  0% { transform: scaleY(0.3); opacity: 0.4; }
+  100% { transform: scaleY(1.0); opacity: 1.0; }
+}
+

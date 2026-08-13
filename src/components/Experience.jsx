@@ -11,7 +11,8 @@ export function Starfield2D({
   isWarping,
   warpProgress = 0,
   audioCtx,
-  audioElements
+  audioElements,
+  isWhiteOnly = false
 }) {
   const canvasRef = useRef(null);
   const textureRef = useRef(null);
@@ -313,14 +314,14 @@ export function Starfield2D({
       }
     };
 
-    canvas.addEventListener('mousemove', onMouseMove);
-    canvas.addEventListener('mouseenter', onMouseEnter);
-    canvas.addEventListener('mouseleave', onMouseLeave);
-    canvas.addEventListener('mousedown', onMouseDown);
-    canvas.addEventListener('mouseup', onMouseUp);
-    canvas.addEventListener('touchmove', onTouchMove);
-    canvas.addEventListener('touchstart', onMouseEnter);
-    canvas.addEventListener('touchend', onMouseLeave);
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseenter', onMouseEnter);
+    window.addEventListener('mouseleave', onMouseLeave);
+    window.addEventListener('mousedown', onMouseDown);
+    window.addEventListener('mouseup', onMouseUp);
+    window.addEventListener('touchmove', onTouchMove);
+    window.addEventListener('touchstart', onMouseEnter);
+    window.addEventListener('touchend', onMouseLeave);
 
     const render = () => {
       ctx.fillStyle = '#000000';
@@ -438,7 +439,7 @@ export function Starfield2D({
 
         if (isWarpingRef.current) {
           // Hyperdrive streak lines drawing
-          ctx.strokeStyle = star.colorType === 'pink' ? (starColors?.left || '#ff007f') : (starColors?.right || '#ffffff');
+          ctx.strokeStyle = (isWhiteOnly || star.colorType === 'white') ? (starColors?.right || '#ffffff') : (starColors?.left || '#ff007f');
           ctx.lineWidth = Math.max(1, star.size * star.z * 1.5);
           ctx.lineCap = 'round';
           ctx.globalAlpha = star.z * 0.8;
@@ -449,7 +450,7 @@ export function Starfield2D({
           ctx.lineTo(sx, sy);
           ctx.stroke();
         } else {
-          const currentTex = star.colorType === 'pink' ? pinkTextureRef.current : textureRef.current;
+          const currentTex = (isWhiteOnly || star.colorType === 'white') ? textureRef.current : (pinkTextureRef.current || textureRef.current);
           if (currentTex && currentTex.complete) {
             ctx.globalAlpha = star.z * (0.7 + twinkle * 0.3);
             ctx.drawImage(currentTex, sx - sSize / 2, sy - sSize / 2, sSize, sSize);
