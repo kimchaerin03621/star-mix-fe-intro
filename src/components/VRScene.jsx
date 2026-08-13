@@ -467,35 +467,77 @@ function InteractiveOrb({ color, initialPos, orbKey, coordsRef, setIsDraggingOrb
       }
     });
 
-    // Proximity Grab Detection in VR (if not currently dragging)
-    if (!isDragging && xr && xr.isPresenting && meshRef.current) {
+    // VR Ray Pointer & Proximity Detection, Hover Feedback, and Auto-Grab (60/90fps frame loop)
+    if (xr && xr.isPresenting && meshRef.current) {
       const session = (typeof xr.getSession === 'function') ? xr.getSession() : null;
       const orbPos = meshRef.current.position;
+      let isAnyCtrlHovering = false;
 
       for (let i = 0; i < 2; i++) {
         const ctrl = xr.getController(i);
         if (ctrl && ctrl.visible) {
-          const dist = ctrl.position.distanceTo(orbPos);
-          if (dist < 0.55) { // Within 0.55 meters
-            let isButtonPressed = false;
-            if (session && session.inputSources && session.inputSources[i]) {
-              const gp = session.inputSources[i].gamepad;
-              if (gp && gp.buttons) {
-                if ((gp.buttons[0] && (gp.buttons[0].pressed || gp.buttons[0].value > 0.15)) ||
-                    (gp.buttons[1] && (gp.buttons[1].pressed || gp.buttons[1].value > 0.15))) {
-                  isButtonPressed = true;
+          const rayOrigin = new THREE.Vector3();
+          ctrl.getWorldPosition(rayOrigin);
+
+          const worldQuat = new THREE.Quaternion();
+          ctrl.getWorldQuaternion(worldQuat);
+          const rayDir = new THREE.Vector3(0, 0, -1).applyQuaternion(worldQuat).normalize();
+
+          const v = new THREE.Vector3().subVectors(orbPos, rayOrigin);
+          const t = v.dot(rayDir);
+          const distToCtrl = rayOrigin.distanceTo(orbPos);
+
+          let isTargeted = false;
+          let grabDistance = 2.5;
+
+          if (t > 0.1 && t < 15.0) {
+            const nearestPointOnRay = rayOrigin.clone().add(rayDir.clone().multiplyScalar(t));
+            const perpDist = orbPos.distanceTo(nearestPointOnRay);
+            
+            // Pointer ray tolerance: within 0.65m of the orb center
+            if (perpDist < 0.65) {
+              isTargeted = true;
+              grabDistance = Math.max(0.4, t);
+            }
+          }
+
+          // Physical touch proximity: within 0.6m of controller position
+          if (distToCtrl < 0.6) {
+            isTargeted = true;
+            grabDistance = Math.max(0.3, distToCtrl);
+          }
+
+          if (isTargeted) {
+            isAnyCtrlHovering = true;
+
+            if (!isDragging) {
+              let isButtonPressed = false;
+              if (session && session.inputSources && session.inputSources[i]) {
+                const gp = session.inputSources[i].gamepad;
+                if (gp && gp.buttons) {
+                  const btn0 = gp.buttons[0]; // Trigger
+                  const btn1 = gp.buttons[1]; // Grip / Squeeze
+                  if ((btn0 && (btn0.pressed || btn0.value > 0.15)) ||
+                      (btn1 && (btn1.pressed || btn1.value > 0.15))) {
+                    isButtonPressed = true;
+                  }
                 }
               }
-            }
-            if (isButtonPressed) {
-              activeControllerRef.current = i;
-              dragDistanceRef.current = Math.max(0.3, Math.min(10.0, dist));
-              setIsDragging(true);
-              setIsDraggingOrb(true);
-              break;
+
+              if (isButtonPressed) {
+                activeControllerRef.current = i;
+                dragDistanceRef.current = grabDistance;
+                setIsDragging(true);
+                setIsDraggingOrb(true);
+                break;
+              }
             }
           }
         }
+      }
+
+      if (!isDragging) {
+        setHovered(isAnyCtrlHovering);
       }
     }
 
