@@ -99,8 +99,8 @@ function Stars3D({ starColors }) {
   
   const isMouseDown = useRef(false);
   const mouseScreenPos = useRef({ x: 0, y: 0 });
-  const prevCtrlPositions = useRef([new THREE.Vector3(), new THREE.Vector3()]);
-  const ctrlVelocities = useRef([0, 0]);
+  const prevRayDirs = useRef([new THREE.Vector3(0, 0, -1), new THREE.Vector3(0, 0, -1)]);
+  const prevMouseRayDir = useRef(new THREE.Vector3(0, 0, -1));
   
   useEffect(() => {
     const onDown = () => { isMouseDown.current = true; };
@@ -125,76 +125,66 @@ function Stars3D({ starColors }) {
     const geom = meshRef.current.geometry;
     const posAttr = geom.attributes.position;
     
-    let interactionPoints = [];
+    let pointerRays = [];
     
     const xr = state.gl.xr;
-    const session = (xr && xr.isPresenting && typeof xr.getSession === 'function') ? xr.getSession() : null;
 
     if (xr && xr.isPresenting) {
       for (let i = 0; i < 2; i++) {
         const ctrl = xr.getController(i);
         if (ctrl && ctrl.visible) {
-          const currentPos = ctrl.position.clone();
+          const rayOrigin = new THREE.Vector3();
+          ctrl.getWorldPosition(rayOrigin);
           
-          // Calculate controller movement speed (velocity) for shake shockwaves
-          const prevPos = prevCtrlPositions.current[i];
-          const distMoved = currentPos.distanceTo(prevPos);
-          const speed = distMoved / Math.max(delta, 0.001);
-          prevCtrlPositions.current[i].copy(currentPos);
+          const worldQuat = new THREE.Quaternion();
+          ctrl.getWorldQuaternion(worldQuat);
+          const rayDir = new THREE.Vector3(0, 0, -1).applyQuaternion(worldQuat).normalize();
           
-          ctrlVelocities.current[i] = ctrlVelocities.current[i] * 0.7 + speed * 0.3;
-          const currentSpeed = ctrlVelocities.current[i];
+          // Calculate ray sweep speed
+          const prevDir = prevRayDirs.current[i];
+          const sweepDist = rayDir.distanceTo(prevDir);
+          const sweepSpeed = sweepDist / Math.max(delta, 0.001);
+          prevRayDirs.current[i].copy(rayDir);
           
-          let isTriggerPressed = false;
-          let isGripPressed = false;
-          
-          if (session && session.inputSources && session.inputSources[i]) {
-            const gamepad = session.inputSources[i].gamepad;
-            if (gamepad && gamepad.buttons) {
-              // Standard WebXR Gamepad mapping: buttons[0] = Trigger, buttons[1] = Grip / Squeeze
-              if (gamepad.buttons[0] && (gamepad.buttons[0].pressed || gamepad.buttons[0].value > 0.15)) {
-                isTriggerPressed = true;
-              }
-              if (gamepad.buttons[1] && (gamepad.buttons[1].pressed || gamepad.buttons[1].value > 0.15)) {
-                isGripPressed = true;
-              }
-            }
-          }
-          
-          interactionPoints.push({
-            pos: currentPos,
-            speed: currentSpeed,
-            isTriggerPressed,
-            isGripPressed
+          pointerRays.push({
+            origin: rayOrigin,
+            dir: rayDir,
+            speed: sweepSpeed
           });
         }
       }
     }
     
-    if (isMouseDown.current) {
-      const mouse3D = new THREE.Vector3(mouseScreenPos.current.x, mouseScreenPos.current.y, 0.5);
-      mouse3D.unproject(state.camera);
-      
-      const dir = mouse3D.sub(state.camera.position).normalize();
-      const mousePos = state.camera.position.clone().add(dir.multiplyScalar(10));
-      
-      interactionPoints.push({
-        pos: mousePos,
-        speed: 4.0,
-        isTriggerPressed: true,
-        isGripPressed: false
-      });
-    }
+    // Desktop mouse pointer ray (always active on mouse move or drag)
+    const mouseRayOrigin = state.camera.position.clone();
+    const mouse3D = new THREE.Vector3(mouseScreenPos.current.x, mouseScreenPos.current.y, 0.5);
+    mouse3D.unproject(state.camera);
+    const mouseRayDir = mouse3D.sub(state.camera.position).normalize();
     
-    interactionPoints.forEach(({ pos, speed, isTriggerPressed, isGripPressed }) => {
-      const cX = pos.x;
-      const cY = pos.y;
-      const cZ = pos.z;
+    const mouseSweepDist = mouseRayDir.distanceTo(prevMouseRayDir.current);
+    const mouseSweepSpeed = mouseSweepDist / Math.max(delta, 0.001);
+    prevMouseRayDir.current.copy(mouseRayDir);
+    
+    pointerRays.push({
+      origin: mouseRayOrigin,
+      dir: mouseRayDir,
+      speed: mouseSweepSpeed
+    });
+    
+    // Process pointer rays: affect stars in the path of the pointer ray beam
+    pointerRays.forEach(({ origin, dir, speed }) => {
+      const oX = origin.x;
+      const oY = origin.y;
+      const oZ = origin.z;
       
-      // Dynamic interaction radius expansion based on controller movement speed
-      const baseRadius = 15.0;
-      const interactionRadius = baseRadius + Math.min(speed * 2.5, 15.0);
-      const speedMultiplier = 1.0 + Math.min(speed * 0.8, 4.0);
+      const dX = dir.x;
+      const dY = dir.y;
+      const dZ = dir.z;
+      
+      // Pointer ray beam radius & speed multiplier
+      const baseBeamRadius = 2.5;
+      const beamRadius = baseBeamRadius + Math.min(speed * 0.4, 2.5);
+      const speedMultiplier = 1.0 + Math.min(speed * 0.6, 3.0);
 
       for (let i = 0; i < count; i++) {
         const i3 = i * 3;
@@ -202,37 +192,46 @@ function Stars3D({ starColors }) {
         const sY = posAttr.array[i3 + 1];
         const sZ = posAttr.array[i3 + 2];
         
-        const dx = sX - cX;
-        const dy = sY - cY;
-        const dz = sZ - cZ;
-        const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+        // Vector from ray origin to star particle
+        const vX = sX - oX;
+        const vY = sY - oY;
+        const vZ = sZ - oZ;
         
-        if (dist < interactionRadius) {
-          const forceFactor = 1 - dist / interactionRadius;
-          const dirX = dx / (dist || 1);
-          const dirY = dy / (dist || 1);
-          const dirZ = dz / (dist || 1);
+        // Distance along pointer ray
+        const t = vX * dX + vY * dY + vZ * dZ;
+        
+        // Only affect stars in front along the pointer ray beam (between 0.5m and 35m)
+        if (t > 0.5 && t < 35.0) {
+          // Point on ray line nearest to star
+          const nX = oX + t * dX;
+          const nY = oY + t * dY;
+          const nZ = oZ + t * dZ;
           
-          let forceMagnitude = 0;
-
-          if (isTriggerPressed) {
-            // Trigger Button -> Gravity Pull / Attraction (Star Vortex)
-            forceMagnitude = -1.2 * forceFactor * speedMultiplier;
-          } else if (isGripPressed) {
-            // Grip/Squeeze Button -> Super Explosion (Blow stars outwards)
-            forceMagnitude = 2.5 * forceFactor * speedMultiplier;
-          } else {
-            // Standard proximity & Shake wave repel
-            forceMagnitude = 0.8 * forceFactor * speedMultiplier;
+          // Perpendicular vector from ray line to star
+          const perpX = sX - nX;
+          const perpY = sY - nY;
+          const perpZ = sZ - nZ;
+          const perpDist = Math.sqrt(perpX * perpX + perpY * perpY + perpZ * perpZ);
+          
+          if (perpDist < beamRadius) {
+            const forceFactor = 1 - (perpDist / beamRadius);
+            
+            // Push star outward from the ray axis
+            const pushX = perpX / (perpDist || 1);
+            const pushY = perpY / (perpDist || 1);
+            const pushZ = perpZ / (perpDist || 1);
+            
+            const forceMagnitude = forceFactor * 0.3 * speedMultiplier;
+            
+            velocities[i3]     += pushX * forceMagnitude;
+            velocities[i3 + 1] += pushY * forceMagnitude;
+            velocities[i3 + 2] += pushZ * forceMagnitude;
           }
-          
-          velocities[i3] += dirX * forceMagnitude;
-          velocities[i3 + 1] += dirY * forceMagnitude;
-          velocities[i3 + 2] += dirZ * forceMagnitude;
         }
       }
     });
     
+    // Physics update: spring return to original space positions & velocity damping
     for (let i = 0; i < count; i++) {
       const i3 = i * 3;
       
