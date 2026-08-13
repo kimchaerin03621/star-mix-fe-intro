@@ -501,8 +501,9 @@ function InteractiveOrb({ color, initialPos, orbKey, coordsRef, setIsDraggingOrb
             const nearestPointOnRay = rayOrigin.clone().add(rayDir.clone().multiplyScalar(t));
             const perpDist = orbPos.distanceTo(nearestPointOnRay);
             
-            // Pointer ray tolerance: within 0.65m of the orb center
-            if (perpDist < 0.65) {
+            // Distance-Adaptive Ray Cone (#1): rayTolerance expands with distance t for easy targeting at any range
+            const rayTolerance = Math.max(0.65, t * 0.15 + 0.5);
+            if (perpDist < rayTolerance) {
               isTargeted = true;
               grabDistance = Math.max(0.4, t);
             }
@@ -519,11 +520,13 @@ function InteractiveOrb({ color, initialPos, orbKey, coordsRef, setIsDraggingOrb
 
             if (!isDragging) {
               let isButtonPressed = false;
-              if (session && session.inputSources && session.inputSources[i]) {
-                const gp = session.inputSources[i].gamepad;
-                if (gp && gp.buttons) {
-                  const btn0 = gp.buttons[0]; // Trigger
-                  const btn1 = gp.buttons[1]; // Grip / Squeeze
+              if (session && session.inputSources) {
+                // WebXR Input Source 1:1 Precision Mapping (#2): Match by index or handedness
+                const targetSource = session.inputSources.find((src, idx) => idx === i || (i === 0 && src.handedness === 'right') || (i === 1 && src.handedness === 'left'));
+                const sourceToUse = targetSource || session.inputSources[i];
+                if (sourceToUse && sourceToUse.gamepad && sourceToUse.gamepad.buttons) {
+                  const btn0 = sourceToUse.gamepad.buttons[0]; // Trigger
+                  const btn1 = sourceToUse.gamepad.buttons[1]; // Grip / Squeeze
                   if ((btn0 && (btn0.pressed || btn0.value > 0.15)) ||
                       (btn1 && (btn1.pressed || btn1.value > 0.15))) {
                     isButtonPressed = true;
@@ -567,11 +570,12 @@ function InteractiveOrb({ color, initialPos, orbKey, coordsRef, setIsDraggingOrb
       const session = (typeof xr.getSession === 'function') ? xr.getSession() : null;
 
       // Release check: if trigger & grip buttons are unpressed, release grab automatically!
-      if (session && session.inputSources && session.inputSources[idx]) {
-        const gp = session.inputSources[idx].gamepad;
-        if (gp && gp.buttons) {
-          const btn0 = gp.buttons[0];
-          const btn1 = gp.buttons[1];
+      if (session && session.inputSources) {
+        const targetSource = session.inputSources.find((src, i) => i === idx || (idx === 0 && src.handedness === 'right') || (idx === 1 && src.handedness === 'left'));
+        const sourceToUse = targetSource || session.inputSources[idx];
+        if (sourceToUse && sourceToUse.gamepad && sourceToUse.gamepad.buttons) {
+          const btn0 = sourceToUse.gamepad.buttons[0];
+          const btn1 = sourceToUse.gamepad.buttons[1];
           const pressed0 = btn0 ? (btn0.pressed || btn0.value > 0.15) : false;
           const pressed1 = btn1 ? (btn1.pressed || btn1.value > 0.15) : false;
 
@@ -582,8 +586,8 @@ function InteractiveOrb({ color, initialPos, orbKey, coordsRef, setIsDraggingOrb
           }
 
           // Joystick Y axis adjusts depth distance along pointer ray
-          if (gp.axes && Math.abs(gp.axes[1]) > 0.1) {
-            dragDistanceRef.current += gp.axes[1] * -0.06;
+          if (sourceToUse.gamepad.axes && Math.abs(sourceToUse.gamepad.axes[1]) > 0.1) {
+            dragDistanceRef.current += sourceToUse.gamepad.axes[1] * -0.06;
             dragDistanceRef.current = Math.max(0.3, Math.min(10.0, dragDistanceRef.current));
           }
         }
