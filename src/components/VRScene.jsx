@@ -99,6 +99,8 @@ function Stars3D({ starColors }) {
   
   const isMouseDown = useRef(false);
   const mouseScreenPos = useRef({ x: 0, y: 0 });
+  const prevCtrlPositions = useRef([new THREE.Vector3(), new THREE.Vector3()]);
+  const ctrlVelocities = useRef([0, 0]);
   
   useEffect(() => {
     const onDown = () => { isMouseDown.current = true; };
@@ -126,15 +128,46 @@ function Stars3D({ starColors }) {
     let interactionPoints = [];
     
     const xr = state.gl.xr;
+    const session = (xr && xr.isPresenting && typeof xr.getSession === 'function') ? xr.getSession() : null;
+
     if (xr && xr.isPresenting) {
-      const ctrl0 = xr.getController(0);
-      const ctrl1 = xr.getController(1);
-      
-      if (ctrl0 && ctrl0.visible) {
-        interactionPoints.push(ctrl0.position.clone());
-      }
-      if (ctrl1 && ctrl1.visible) {
-        interactionPoints.push(ctrl1.position.clone());
+      for (let i = 0; i < 2; i++) {
+        const ctrl = xr.getController(i);
+        if (ctrl && ctrl.visible) {
+          const currentPos = ctrl.position.clone();
+          
+          // Calculate controller movement speed (velocity) for shake shockwaves
+          const prevPos = prevCtrlPositions.current[i];
+          const distMoved = currentPos.distanceTo(prevPos);
+          const speed = distMoved / Math.max(delta, 0.001);
+          prevCtrlPositions.current[i].copy(currentPos);
+          
+          ctrlVelocities.current[i] = ctrlVelocities.current[i] * 0.7 + speed * 0.3;
+          const currentSpeed = ctrlVelocities.current[i];
+          
+          let isTriggerPressed = false;
+          let isGripPressed = false;
+          
+          if (session && session.inputSources && session.inputSources[i]) {
+            const gamepad = session.inputSources[i].gamepad;
+            if (gamepad && gamepad.buttons) {
+              // Standard WebXR Gamepad mapping: buttons[0] = Trigger, buttons[1] = Grip / Squeeze
+              if (gamepad.buttons[0] && (gamepad.buttons[0].pressed || gamepad.buttons[0].value > 0.15)) {
+                isTriggerPressed = true;
+              }
+              if (gamepad.buttons[1] && (gamepad.buttons[1].pressed || gamepad.buttons[1].value > 0.15)) {
+                isGripPressed = true;
+              }
+            }
+          }
+          
+          interactionPoints.push({
+            pos: currentPos,
+            speed: currentSpeed,
+            isTriggerPressed,
+            isGripPressed
+          });
+        }
       }
     }
     
@@ -145,14 +178,24 @@ function Stars3D({ starColors }) {
       const dir = mouse3D.sub(state.camera.position).normalize();
       const mousePos = state.camera.position.clone().add(dir.multiplyScalar(10));
       
-      interactionPoints.push(mousePos);
+      interactionPoints.push({
+        pos: mousePos,
+        speed: 4.0,
+        isTriggerPressed: true,
+        isGripPressed: false
+      });
     }
     
-    interactionPoints.forEach((pos) => {
+    interactionPoints.forEach(({ pos, speed, isTriggerPressed, isGripPressed }) => {
       const cX = pos.x;
       const cY = pos.y;
       const cZ = pos.z;
       
+      // Dynamic interaction radius expansion based on controller movement speed
+      const baseRadius = 15.0;
+      const interactionRadius = baseRadius + Math.min(speed * 2.5, 15.0);
+      const speedMultiplier = 1.0 + Math.min(speed * 0.8, 4.0);
+
       for (let i = 0; i < count; i++) {
         const i3 = i * 3;
         const sX = posAttr.array[i3];
@@ -164,17 +207,28 @@ function Stars3D({ starColors }) {
         const dz = sZ - cZ;
         const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
         
-        const interactionRadius = 10.0;
         if (dist < interactionRadius) {
           const forceFactor = 1 - dist / interactionRadius;
+          const dirX = dx / (dist || 1);
+          const dirY = dy / (dist || 1);
+          const dirZ = dz / (dist || 1);
           
-          const repelX = (dx / (dist || 1)) * 0.5;
-          const repelY = (dy / (dist || 1)) * 0.5;
-          const repelZ = (dz / (dist || 1)) * 0.5;
+          let forceMagnitude = 0;
+
+          if (isTriggerPressed) {
+            // Trigger Button -> Gravity Pull / Attraction (Star Vortex)
+            forceMagnitude = -1.2 * forceFactor * speedMultiplier;
+          } else if (isGripPressed) {
+            // Grip/Squeeze Button -> Super Explosion (Blow stars outwards)
+            forceMagnitude = 2.5 * forceFactor * speedMultiplier;
+          } else {
+            // Standard proximity & Shake wave repel
+            forceMagnitude = 0.8 * forceFactor * speedMultiplier;
+          }
           
-          velocities[i3] += repelX * forceFactor;
-          velocities[i3 + 1] += repelY * forceFactor;
-          velocities[i3 + 2] += repelZ * forceFactor;
+          velocities[i3] += dirX * forceMagnitude;
+          velocities[i3 + 1] += dirY * forceMagnitude;
+          velocities[i3 + 2] += dirZ * forceMagnitude;
         }
       }
     });
@@ -182,7 +236,7 @@ function Stars3D({ starColors }) {
     for (let i = 0; i < count; i++) {
       const i3 = i * 3;
       
-      const springPower = 0.0002;
+      const springPower = 0.0003;
       velocities[i3] += (originals[i3] - posAttr.array[i3]) * springPower;
       velocities[i3 + 1] += (originals[i3 + 1] - posAttr.array[i3 + 1]) * springPower;
       velocities[i3 + 2] += (originals[i3 + 2] - posAttr.array[i3 + 2]) * springPower;
@@ -191,9 +245,9 @@ function Stars3D({ starColors }) {
       posAttr.array[i3 + 1] += velocities[i3 + 1];
       posAttr.array[i3 + 2] += velocities[i3 + 2];
       
-      velocities[i3] *= 0.98;
-      velocities[i3 + 1] *= 0.98;
-      velocities[i3 + 2] *= 0.98;
+      velocities[i3] *= 0.95;
+      velocities[i3 + 1] *= 0.95;
+      velocities[i3 + 2] *= 0.95;
     }
     
     posAttr.needsUpdate = true;
