@@ -325,7 +325,7 @@ function ControllerHelpers() {
 }
 
 // 3D Interactive Audio Orb
-function InteractiveOrb({ color, initialPos, orbKey, coordsRef, setIsDraggingOrb, analysersRef }) {
+function InteractiveOrb({ color, initialPos, orbKey, coordsRef, setIsDraggingOrb, analysersRef, draggingOrbsRef }) {
   const meshRef = useRef();
   const waveRef1 = useRef();
   const waveRef2 = useRef();
@@ -339,6 +339,13 @@ function InteractiveOrb({ color, initialPos, orbKey, coordsRef, setIsDraggingOrb
   // Track dragging distance and active grabbing controller (0, 1, or 'mouse')
   const dragDistanceRef = useRef(2.5);
   const activeControllerRef = useRef(null);
+
+  // Sync drag state to parent collision manager
+  useEffect(() => {
+    if (draggingOrbsRef && draggingOrbsRef.current) {
+      draggingOrbsRef.current[orbKey] = isDragging;
+    }
+  }, [isDragging, orbKey, draggingOrbsRef]);
 
   // Desktop mouse pointer feedback
   useEffect(() => {
@@ -541,7 +548,17 @@ function InteractiveOrb({ color, initialPos, orbKey, coordsRef, setIsDraggingOrb
       }
     }
 
-    if (!isDragging) return;
+    if (!isDragging) {
+      // Synchronize mesh & wave ring positions with collision-resolved coordsRef
+      if (meshRef.current && coordsRef.current && coordsRef.current[orbKey]) {
+        const solvedPos = coordsRef.current[orbKey];
+        meshRef.current.position.copy(solvedPos);
+        if (waveRef1.current) waveRef1.current.position.copy(solvedPos);
+        if (waveRef2.current) waveRef2.current.position.copy(solvedPos);
+        if (waveRef3.current) waveRef3.current.position.copy(solvedPos);
+      }
+      return;
+    }
 
     // Active VR Controller Tracking & Movement
     if (xr && xr.isPresenting && activeControllerRef.current !== 'mouse') {
@@ -872,8 +889,9 @@ function VRAudioExperience({ starColors, activeSong, leftRate, rightRate, active
   }, [isAudioActive, stems]);
 
   const wasAPressedRef = useRef(false);
+  const draggingOrbsRef = useRef({});
 
-  // Frame Loop updates: Head/Camera Tracking, 3D Sound Positioning
+  // Frame Loop updates: Head/Camera Tracking, 3D Sound Positioning & Sphere Collision
   useFrame((state) => {
     // 0. VR Controller A/X (Primary Button) check
     const xr = state.gl.xr;
@@ -898,6 +916,46 @@ function VRAudioExperience({ starColors, activeSong, leftRate, rightRate, active
       if (onNextSong) onNextSong();
     }
     wasAPressedRef.current = aPressedThisFrame;
+
+    // 0.5 Sphere Collision & Repulsion: Prevent stars from colliding/merging with each other
+    const stemKeys = Object.keys(orbCoordsRef.current);
+    const minDistance = 0.75; // 0.75m minimum distance between star centers to prevent overlap
+
+    for (let pass = 0; pass < 2; pass++) {
+      for (let i = 0; i < stemKeys.length; i++) {
+        for (let j = i + 1; j < stemKeys.length; j++) {
+          const keyA = stemKeys[i];
+          const keyB = stemKeys[j];
+          const posA = orbCoordsRef.current[keyA];
+          const posB = orbCoordsRef.current[keyB];
+
+          if (posA && posB) {
+            const dist = posA.distanceTo(posB);
+            if (dist < minDistance) {
+              const overlap = minDistance - dist;
+              let pushDir = new THREE.Vector3().subVectors(posA, posB);
+
+              if (pushDir.lengthSq() < 0.0001) {
+                pushDir.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5);
+              }
+              pushDir.normalize();
+
+              const isDragA = draggingOrbsRef.current[keyA];
+              const isDragB = draggingOrbsRef.current[keyB];
+
+              if (isDragA && !isDragB) {
+                posB.sub(pushDir.clone().multiplyScalar(overlap));
+              } else if (isDragB && !isDragA) {
+                posA.add(pushDir.clone().multiplyScalar(overlap));
+              } else {
+                posA.add(pushDir.clone().multiplyScalar(overlap * 0.5));
+                posB.sub(pushDir.clone().multiplyScalar(overlap * 0.5));
+              }
+            }
+          }
+        }
+      }
+    }
 
     const camera = state.camera;
     const ctx = audioCtxRef.current;
@@ -945,7 +1003,6 @@ function VRAudioExperience({ starColors, activeSong, leftRate, rightRate, active
         audio.playbackRate = isRhythm ? rightRateRef.current : leftRateRef.current;
       }
 
-      // Stable boosted gain levels (No EQs or filters modified based on presets, purely flat spatial)
       const gainNode = gainsRef.current[stem.key];
       if (gainNode) {
         gainNode.gain.setTargetAtTime(1.5, webAudioTime, 0.1);
@@ -965,6 +1022,7 @@ function VRAudioExperience({ starColors, activeSong, leftRate, rightRate, active
           coordsRef={orbCoordsRef}
           setIsDraggingOrb={setIsDraggingOrb}
           analysersRef={analysersRef}
+          draggingOrbsRef={draggingOrbsRef}
         />
       ))}
     </>
