@@ -334,10 +334,11 @@ function InteractiveOrb({ color, initialPos, orbKey, coordsRef, setIsDraggingOrb
   
   const [isDragging, setIsDragging] = useState(false);
   const [hovered, setHovered] = useState(false);
-  const { camera, raycaster } = useThree();
+  const { camera, raycaster, gl } = useThree();
   
-  // Track dragging distance dynamically (distance along the pointer ray)
+  // Track dragging distance and active grabbing controller (0, 1, or 'mouse')
   const dragDistanceRef = useRef(2.5);
+  const activeControllerRef = useRef(null);
 
   // Desktop mouse pointer feedback
   useEffect(() => {
@@ -369,23 +370,50 @@ function InteractiveOrb({ color, initialPos, orbKey, coordsRef, setIsDraggingOrb
 
   const handlePointerDown = (e) => {
     e.stopPropagation();
-    e.target.setPointerCapture(e.pointerId);
+    if (e.target && typeof e.target.setPointerCapture === 'function' && e.pointerId) {
+      try { e.target.setPointerCapture(e.pointerId); } catch(err) {}
+    }
     
-    const dist = raycaster.ray.origin.distanceTo(meshRef.current.position);
-    dragDistanceRef.current = Math.max(0.5, Math.min(10.0, dist));
+    const xr = gl.xr;
+    if (xr && xr.isPresenting && meshRef.current) {
+      const orbPos = meshRef.current.position;
+      let chosen = 0;
+      let minDist = Infinity;
+      
+      for (let i = 0; i < 2; i++) {
+        const ctrl = xr.getController(i);
+        if (ctrl && ctrl.visible) {
+          const d = ctrl.position.distanceTo(orbPos);
+          if (d < minDist) {
+            minDist = d;
+            chosen = i;
+          }
+        }
+      }
+      activeControllerRef.current = chosen;
+      const ctrl = xr.getController(chosen);
+      const dist = ctrl ? ctrl.position.distanceTo(orbPos) : 2.5;
+      dragDistanceRef.current = Math.max(0.3, Math.min(10.0, dist));
+    } else {
+      activeControllerRef.current = 'mouse';
+      const dist = raycaster.ray.origin.distanceTo(meshRef.current.position);
+      dragDistanceRef.current = Math.max(0.5, Math.min(10.0, dist));
+    }
     
     setIsDragging(true);
     setIsDraggingOrb(true); // Disable OrbitControls
   };
 
   const handlePointerUp = (e) => {
-    e.stopPropagation();
+    if (e && typeof e.stopPropagation === 'function') e.stopPropagation();
     setIsDragging(false);
     setIsDraggingOrb(false); // Re-enable OrbitControls
   };
 
   // 60fps/90fps frame loop: Continuously update position and check VR controller joystick input!
   useFrame((state) => {
+    const xr = state.gl.xr;
+
     // 0. Audio Analyser Pulse Effect
     let currentVol = 0;
 
@@ -402,12 +430,10 @@ function InteractiveOrb({ color, initialPos, orbKey, coordsRef, setIsDraggingOrb
       const avg = sum / (bufferLength || 1);
       currentVol = Math.pow(avg / 255, 1.2);
 
-      // 0.1 Scale Pulse: base is 1.0 (or 1.25 when hovered)
       const baseScale = hovered ? 1.25 : 1.0;
       const pulseScale = baseScale + currentVol * 0.95;
       meshRef.current.scale.set(pulseScale, pulseScale, pulseScale);
 
-      // 0.2 Emissive intensity static based only on hover state
       if (meshRef.current.material) {
         meshRef.current.material.emissiveIntensity = hovered ? 2.5 : 1.2;
       }
@@ -419,7 +445,7 @@ function InteractiveOrb({ color, initialPos, orbKey, coordsRef, setIsDraggingOrb
       }
     }
 
-    // 0.3 Concentration of Concentric Ripple Waves (3-Layer wave train)
+    // Concentric Ripple Wave animation
     const waveSpeed = 0.007 * (1.0 + currentVol * 2.5);
     waveTimeRef.current += waveSpeed;
 
@@ -432,67 +458,116 @@ function InteractiveOrb({ color, initialPos, orbKey, coordsRef, setIsDraggingOrb
     waveRings.forEach(({ ref, offset }) => {
       if (ref.current && ref.current.material) {
         ref.current.quaternion.copy(state.camera.quaternion);
-
         const rawProgress = (waveTimeRef.current + offset) % 1.0;
-        
-        // Expand concentric rings outwards: starts at 1.0x, goes up to 4.2x
         const scaleVal = 1.0 + rawProgress * 3.2;
         ref.current.scale.set(scaleVal, scaleVal, scaleVal);
-
-        // Opacity mapping (Liquid ripple formula: swells in middle, fades at edges)
-        // Signficantly boosted opacity (0.05 base + up to 0.70 volume bonus) for superb wave visibility!
         const baseOpacity = 0.05 + currentVol * 0.65;
         const opacityVal = Math.max(0, baseOpacity * (1.0 - rawProgress) * Math.sin(rawProgress * Math.PI));
-        
-        // Quiet mode (no active volume/track not loaded) keeps ripples invisible
         ref.current.material.opacity = currentVol > 0.02 ? opacityVal : 0;
       }
     });
 
-    if (!isDragging) return;
+    // Proximity Grab Detection in VR (if not currently dragging)
+    if (!isDragging && xr && xr.isPresenting && meshRef.current) {
+      const session = (typeof xr.getSession === 'function') ? xr.getSession() : null;
+      const orbPos = meshRef.current.position;
 
-    // 1. VR Controller Joystick check (Slide depth along ray)
-    const xr = state.gl.xr;
-    if (xr && xr.isPresenting) {
-      const session = xr.getSession();
-      if (session) {
-        for (const source of session.inputSources) {
-          if (source.gamepad) {
-            const joyY = source.gamepad.axes[1];
-            if (Math.abs(joyY) > 0.1) {
-              dragDistanceRef.current += joyY * -0.06;
-              dragDistanceRef.current = Math.max(0.5, Math.min(10.0, dragDistanceRef.current));
+      for (let i = 0; i < 2; i++) {
+        const ctrl = xr.getController(i);
+        if (ctrl && ctrl.visible) {
+          const dist = ctrl.position.distanceTo(orbPos);
+          if (dist < 0.55) { // Within 0.55 meters
+            let isButtonPressed = false;
+            if (session && session.inputSources && session.inputSources[i]) {
+              const gp = session.inputSources[i].gamepad;
+              if (gp && gp.buttons) {
+                if ((gp.buttons[0] && (gp.buttons[0].pressed || gp.buttons[0].value > 0.15)) ||
+                    (gp.buttons[1] && (gp.buttons[1].pressed || gp.buttons[1].value > 0.15))) {
+                  isButtonPressed = true;
+                }
+              }
+            }
+            if (isButtonPressed) {
+              activeControllerRef.current = i;
+              dragDistanceRef.current = Math.max(0.3, Math.min(10.0, dist));
+              setIsDragging(true);
+              setIsDraggingOrb(true);
+              break;
             }
           }
         }
       }
     }
 
-    // 2. Project target point along active ray at exact distance
-    const targetPoint = new THREE.Vector3();
-    raycaster.ray.at(dragDistanceRef.current, targetPoint);
+    if (!isDragging) return;
 
-    // 3. Spherical 10-meter boundary clamping centered around the user's ears (camera)
-    const center = state.camera.position.clone();
-    const dirToTarget = new THREE.Vector3().subVectors(targetPoint, center);
-    const distToTarget = dirToTarget.length();
-    
-    // Clamp the distance between 0.5m and 10.0m from ears
-    const clampedDist = Math.max(0.5, Math.min(10.0, distToTarget));
-    dirToTarget.normalize().multiplyScalar(clampedDist);
-    
-    const nextPoint = new THREE.Vector3().addVectors(center, dirToTarget);
-    
-    const nextX = nextPoint.x;
-    const nextY = nextPoint.y; // Floor limit removed: allow dragging down to under-feet space!
-    const nextZ = nextPoint.z;
+    // Active VR Controller Tracking & Movement
+    if (xr && xr.isPresenting && activeControllerRef.current !== 'mouse') {
+      const idx = activeControllerRef.current ?? 0;
+      const ctrl = xr.getController(idx);
+      const session = (typeof xr.getSession === 'function') ? xr.getSession() : null;
 
-    meshRef.current.position.set(nextX, nextY, nextZ);
-    coordsRef.current[orbKey].set(nextX, nextY, nextZ);
-    
-    if (waveRef1.current) waveRef1.current.position.set(nextX, nextY, nextZ);
-    if (waveRef2.current) waveRef2.current.position.set(nextX, nextY, nextZ);
-    if (waveRef3.current) waveRef3.current.position.set(nextX, nextY, nextZ);
+      // Release check: if trigger & grip buttons are unpressed, release grab automatically!
+      if (session && session.inputSources && session.inputSources[idx]) {
+        const gp = session.inputSources[idx].gamepad;
+        if (gp && gp.buttons) {
+          const btn0 = gp.buttons[0];
+          const btn1 = gp.buttons[1];
+          const pressed0 = btn0 ? (btn0.pressed || btn0.value > 0.15) : false;
+          const pressed1 = btn1 ? (btn1.pressed || btn1.value > 0.15) : false;
+
+          if (!pressed0 && !pressed1) {
+            setIsDragging(false);
+            setIsDraggingOrb(false);
+            return;
+          }
+
+          // Joystick Y axis adjusts depth distance along pointer ray
+          if (gp.axes && Math.abs(gp.axes[1]) > 0.1) {
+            dragDistanceRef.current += gp.axes[1] * -0.06;
+            dragDistanceRef.current = Math.max(0.3, Math.min(10.0, dragDistanceRef.current));
+          }
+        }
+      }
+
+      if (ctrl && ctrl.visible && meshRef.current) {
+        const rayOrigin = new THREE.Vector3();
+        ctrl.getWorldPosition(rayOrigin);
+
+        const worldQuat = new THREE.Quaternion();
+        ctrl.getWorldQuaternion(worldQuat);
+        const rayDir = new THREE.Vector3(0, 0, -1).applyQuaternion(worldQuat).normalize();
+
+        const targetPos = rayOrigin.clone().add(rayDir.multiplyScalar(dragDistanceRef.current));
+
+        meshRef.current.position.copy(targetPos);
+        coordsRef.current[orbKey].copy(targetPos);
+
+        if (waveRef1.current) waveRef1.current.position.copy(targetPos);
+        if (waveRef2.current) waveRef2.current.position.copy(targetPos);
+        if (waveRef3.current) waveRef3.current.position.copy(targetPos);
+      }
+    } else if (meshRef.current) {
+      // Desktop Mouse Ray Position Update
+      const targetPoint = new THREE.Vector3();
+      raycaster.ray.at(dragDistanceRef.current, targetPoint);
+
+      const center = state.camera.position.clone();
+      const dirToTarget = new THREE.Vector3().subVectors(targetPoint, center);
+      const distToTarget = dirToTarget.length();
+
+      const clampedDist = Math.max(0.5, Math.min(10.0, distToTarget));
+      dirToTarget.normalize().multiplyScalar(clampedDist);
+
+      const nextPoint = new THREE.Vector3().addVectors(center, dirToTarget);
+
+      meshRef.current.position.copy(nextPoint);
+      coordsRef.current[orbKey].copy(nextPoint);
+
+      if (waveRef1.current) waveRef1.current.position.copy(nextPoint);
+      if (waveRef2.current) waveRef2.current.position.copy(nextPoint);
+      if (waveRef3.current) waveRef3.current.position.copy(nextPoint);
+    }
   });
 
   return (
@@ -669,11 +744,11 @@ function VRAudioExperience({ starColors, activeSong, leftRate, rightRate, active
         analyser.fftSize = 64;
 
         const panner = ctx.createPanner();
-        panner.panningModel = 'HRTF';
+        panner.panningModel = 'HRTF'; // Web Audio API HRTF (Binaural 3D Spatial Audio)
         panner.distanceModel = 'inverse';
-        panner.refDistance = 4.0;
+        panner.refDistance = 1.5; // Decreased from 4.0 so approaching a star makes its sound distinct & clear
         panner.maxDistance = 10000;
-        panner.rolloffFactor = 0.7;
+        panner.rolloffFactor = 1.0; // Realistic 3D distance attenuation (Dolby Atmos feel)
 
         // 초기 지정 3D 공간 좌표 주입
         const pos = orbCoordsRef.current[stem.key] || new THREE.Vector3(...stem.initialPos);
